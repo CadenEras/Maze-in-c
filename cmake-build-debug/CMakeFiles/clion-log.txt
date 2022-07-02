@@ -1,10 +1,8 @@
 C:\Users\gries\AppData\Local\JetBrains\Toolbox\apps\CLion\ch-0\221.5921.27\bin\cmake\win\bin\cmake.exe -DCMAKE_BUILD_TYPE=Debug -DCMAKE_MAKE_PROGRAM=C:/Users/gries/AppData/Local/JetBrains/Toolbox/apps/CLion/ch-0/221.5921.27/bin/ninja/win/ninja.exe -G Ninja -S D:\CLionProjects\maze_test -B D:\CLionProjects\maze_test\cmake-build-debug
--- The C compiler identification is GNU 11.2.0
--- Detecting C compiler ABI info
--- Detecting C compiler ABI info - done
--- Check for working C compiler: C:/Users/gries/AppData/Local/JetBrains/Toolbox/apps/CLion/ch-0/221.5921.27/bin/mingw/bin/gcc.exe - skipped
--- Detecting C compile features
--- Detecting C compile features - done
--- Configuring done
--- Generating done
--- Build files have been written to: D:/CLionProjects/maze_test/cmake-build-debug
+CMake Error at CMakeLists.txt:15 (target_link_libraries):
+  Cannot specify link libraries for target "mingw32" which is not built by
+  this project.
+
+
+-- Configuring incomplete, errors occurred!
+See also "D:/CLionProjects/maze_test/cmake-build-debug/CMakeFiles/CMakeOutput.log".
