@@ -1,206 +1,142 @@
-// Created by Melissa Gries (CadenEras) on 5/23/2022.
-#include "MovePlayer.h"
-
+// Created by Melissa Gries (CadenEras).
+#include "maze.h"
+#include "texture.h"
+#include "map.h"
+#include <SDL.h>
+#include <SDL_image.h>
 #include <stdio.h>
+#include <stdlib.h>
+#include <sys/types.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 #include <stdbool.h>
 #include <malloc.h>
 #include <windows.h>
 
-#define SCREEN_WIDTH    20
-#define SCREEN_HEIGHT   15
-#define START_X         0
-#define START_Y         7
+struct Map* loadMap(const char* src, SDL_Renderer *renderer){
+    int fd = open(src, O_RDONLY);
+    if(fd == -1){
+        perror("open");
+        exit(EXIT_FAILURE);
+    }
 
-#define PLAYER '@'
-#define WALL '#'
+    struct stat stat;
+    if(fstat(fd, &stat) == -1){
+        perror("stat");
+        exit(EXIT_FAILURE);
+    }
 
-void CreateMaze(CHAR_INFO screenBuffer[], int playerX, int playerY);
+    if(stat.st_size < 14){
+        fprintf(stderr, "Corrupted map file");
+        exit(EXIT_FAILURE);
+    }
 
-BOOL MovePlayer(CHAR_INFO screenBuffer[], COORD *playerPos);
+    int16_t version, lines, columns;
 
-void main() {
-    CHAR_INFO screenBuffer[SCREEN_WIDTH * SCREEN_HEIGHT] = {0};
-    COORD bufferSize = {SCREEN_WIDTH, SCREEN_HEIGHT};
-    COORD playerPos = {START_X, START_Y};
-    int x = 0, y = 0;
+    read(fd, &version, 2);
+    if(version != 1){
+        fprintf(stderr, "Incompatible/Corrupted map file");
+        exit(EXIT_FAILURE);
+    }
 
-    srand(GetTickCount());
+    struct Map *map;
+    map = malloc(sizeof(struct Map));
 
-    for (y = 0; y < bufferSize.Y; y++) {
-        for (x = 2; x < bufferSize.X; x++) {
-            if (!(rand() % 3)){
-                screenBuffer[x + y * SCREEN_WIDTH].Char.AsciiChar = WALL;
-                screenBuffer[x + y * SCREEN_HEIGHT].Attributes = FOREGROUND_GREEN;
+    read(fd, &map->columns, 2);
+    read(fd, &map->lines, 2);
+
+    read(fd, &map->player.column, 2);
+    read(fd, &map->player.line, 2);
+    read(fd, &map->exit.column, 2);
+    read(fd, &map->exit.line, 2);
+
+    map->size = map->columns * map->lines;
+    map->renderer = renderer;
+
+    if(stat.st_size < (14 + map->size)){
+        fprintf(stderr, "Corrupted map file");
+        exit(EXIT_FAILURE);
+    }
+
+    int8_t* rawMap = calloc(map->size, sizeof(int8_t));
+    read(fd, rawMap, map->size);
+
+    map->map = calloc(map->columns, sizeof(int8_t*));
+
+    int column, line;
+    for(column = 0; column < map->columns; column++){
+        map->map[column] = (int8_t*) calloc(map->lines, sizeof(int8_t));
+        for(line = 0; line < map->lines; line++){
+            map->map[column][line] = rawMap[(map->lines * column + line)];
+        }
+    }
+
+    free(rawMap);
+
+    return map;
+}
+
+void freeMap(struct Map* map){
+    int i;
+    for(i = 0; i < map->columns; i++){
+        free(map->map[i]);
+    }
+
+    SDL_DestroyRenderer(map->renderer);
+
+    free(map->map);
+    free(map);
+}
+
+int main(int argc, char* argv[]){
+    SDL_Window* window;
+    SDL_Renderer* renderer;
+    SDL_Event event;
+    int continu = 1;
+
+    int img_flags = IMG_INIT_PNG;
+
+    ////////////////////////////////////////////////
+    //          Initializing the SDL              //
+    ////////////////////////////////////////////////
+    if (SDL_Init(SDL_INIT_VIDEO) == -1) {
+        fprintf(stderr, "SDL could not be initialized : %s\n", SDL_GetError()); //In case of an error
+        exit(EXIT_FAILURE);
+    }
+
+    window = SDL_CreateWindow("Maze", SDL_WINDOWPOS_UNDEFINED, SDL_WINDOWPOS_UNDEFINED, SCREEN_WIDTH, SCREEN_HEIGHT, SDL_WINDOW_RESIZABLE);
+    if (window == NULL) {
+        fprintf(stderr,"Window could not be created ! SDL_Error : %s\n", SDL_GetError()); //in case of an error : The return
+        exit(EXIT_FAILURE);
+    }
+
+    int playerPos[2] = {1, 1}, exitPos[2] = {8, 8};
+    struct Map *map = loadMap("./map", renderer);
+
+    maze(map);
+
+    while (continu) {
+        SDL_PollEvent(&event);
+        while (SDL_PollEvent(&event)) {
+            switch (event.type) {
+                case SDL_QUIT:
+                    continu = 0;
+                    break;
+                case SDL_KEYDOWN:
+                    if (event.key.keysym.sym == SDLK_ESCAPE) {
+                        continu = 0;
+                    }
+                    break;
             }
         }
+        SDL_UpdateWindowSurface(window);
     }
 
-    CreateMaze(screenBuffer, playerPos.X, playerPos.Y);
+    freeMap(map);
 
-    while (1) {
-        if (MovePlayer(screenBuffer, &playerPos)) {
-            CreateMaze(screenBuffer, playerPos.X, playerPos.Y);
-        }
-    }
+    SDL_DestroyWindow(window);
+    SDL_Quit();
+
+    return(EXIT_SUCCESS);
 }
-
-void CreateMaze(CHAR_INFO screenBuffer[], int playerX, int playerY) {
-    SMALL_RECT drawRect = {0, 0, SCREEN_WIDTH - 1, SCREEN_HEIGHT - 1};
-    COORD bufferSize = {SCREEN_WIDTH, SCREEN_HEIGHT};
-    COORD writeFrom = {0, 0};
-    HANDLE hOutput;
-
-    hOutput = GetStdHandle(STD_OUTPUT_HANDLE);
-
-    screenBuffer[playerX + playerY * SCREEN_WIDTH].Char.AsciiChar = PLAYER;
-    screenBuffer[playerX + playerY * SCREEN_HEIGHT].Attributes = FOREGROUND_RED;
-
-    WriteConsoleOutput(hOutput, screenBuffer, bufferSize, writeFrom, &drawRect);
-}
-
-BOOL MovePlayer(CHAR_INFO screenBuffer[], COORD *playerPos) {
-    INPUT_RECORD InputRecord;
-    COORD oldPosition = *playerPos;
-    DWORD Events=0;
-    HANDLE hInput;
-    BOOL bPlayerMoved = FALSE;
-    int bKeyDown = 0;
-
-    hInput = GetStdHandle(STD_OUTPUT_HANDLE);
-    ReadConsoleInput(hInput, &InputRecord, 1, &Events);
-
-    bKeyDown = InputRecord.Event.KeyEvent.bKeyDown;
-
-    if(InputRecord.EventType == KEY_EVENT && bKeyDown) {
-        if (InputRecord.Event.KeyEvent.wVirtualKeyCode == VK_RIGHT) {
-            if (playerPos ->X < (SCREEN_WIDTH - 1)) {
-                playerPos->X++;
-                bPlayerMoved = TRUE;
-            }
-        } else if (InputRecord.Event.KeyEvent.wVirtualKeyCode == VK_LEFT) {
-            if (playerPos->X > 0) {
-                playerPos->X++;
-                bPlayerMoved = TRUE;
-            }
-        } else if (InputRecord.Event.KeyEvent.wVirtualKeyCode == VK_UP) {
-            if (playerPos->Y > 0) {
-                playerPos->Y--;
-                bPlayerMoved = TRUE;
-            }
-        } else if (InputRecord.Event.KeyEvent.wVirtualKeyCode == VK_DOWN) {
-            if (playerPos->Y < (SCREEN_HEIGHT - 1)) {
-                playerPos->Y++;
-                bPlayerMoved = TRUE;
-            }
-        } else if (InputRecord.Event.KeyEvent.wVirtualKeyCode == VK_ESCAPE) {
-            exit(0);
-        }
-    }
-
-    FlushConsoleInputBuffer(hInput);
-
-    if (bPlayerMoved) {
-        if (screenBuffer[playerPos->X + playerPos->Y * SCREEN_WIDTH].Char.AsciiChar != WALL) {
-            screenBuffer[oldPosition.X + oldPosition.Y * SCREEN_WIDTH].Char.AsciiChar = ' ';
-            screenBuffer[oldPosition.X + oldPosition.Y * SCREEN_HEIGHT].Attributes = 0;
-        } else {
-            *playerPos = oldPosition;
-        }
-        return TRUE;
-    }
-    return TRUE;
-}
-
-/*struct node {
-    int vertex;
-    struct node* next;
-};
-
-struct node* createNode(int v);
-
-struct Graph {
-    int numVertices;
-    //To store a two-dimensional array
-    int* visited;
-    struct node** adjLists;
-};
-
-//Starting DFS algo
-void DFS(struct Graph* graph, int vertex) {
-    struct node* adjList = graph->adjLists[vertex];
-    struct node* temp = adjList;
-
-    graph->visited[vertex] = 1;
-    printf("visited %d \n", vertex);
-
-    while (temp != NULL) {
-        int connectedVertex = temp->vertex;
-
-        if(graph->visited[connectedVertex] == 0) {
-            DFS(graph, connectedVertex);
-        }
-        temp = temp->next;
-    }
-}
-
-//Creating a node
-struct node* createNode(int v) {
-    struct node* newNode = malloc(sizeof(struct Graph));
-    newNode->vertex = v;
-    newNode->next = NULL;
-    return newNode;
-}
-
-//Create de graph
-struct Graph* createGraph(int vertices) {
-    struct Graph* graph = malloc(sizeof(struct Graph));
-    graph->numVertices = vertices;
-    graph->adjLists = malloc(vertices * sizeof(struct node*));
-    graph->visited = malloc(vertices * sizeof(int));
-
-    for (int i = 0; i < vertices; ++i) {
-        graph->adjLists[i] = NULL;
-        graph->visited[i] = 0;
-    }
-    return graph;
-}
-
-//add edge
-void addEdge(struct Graph* graph, int src, int dest) {
-    //add edge from source to destination
-    struct node* newNode = createNode(dest);
-    newNode->next = graph->adjLists[src];
-    graph->adjLists[src] = newNode;
-
-    //add edge from destination to source
-    newNode = createNode(src);
-    newNode->next = graph->adjLists[dest];
-    graph->adjLists[dest] = newNode;
-}
-
-//print the graph
-void printGraph(struct Graph* graph) {
-    for (int v = 0; v < graph->numVertices; ++v) {
-        struct node* temp = graph->adjLists[v];
-        printf("\n Adjacency list of vertex %d\n ", v);
-        while (temp) {
-            printf("%d -> ", temp->vertex);
-            temp = temp->next;
-        }
-        printf("\n");
-    }
-}
-
-int main() {
-    struct Graph* graph = createGraph(4);
-    addEdge(graph, 0, 1);
-    addEdge(graph, 0, 2);
-    addEdge(graph, 1, 2);
-    addEdge(graph, 2, 3);
-
-    printGraph(graph);
-
-    DFS(graph, 2);
-
-    return 0;
-}*/
